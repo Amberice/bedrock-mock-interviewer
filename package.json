@@ -1,0 +1,11 @@
+{
+  "name": "bedrock-interviewer-root",
+  "scripts": {
+    "infra:deploy": "cd infra && cdk deploy",
+    "infra:destroy": "cd infra && cdk destroy",
+    "api:start": "cd backend/app && uvicorn handler:app --reload",
+    "web:dev": "cd frontend && npm run dev",
+    "web:build": "cd frontend && npm run build",
+    "full-release": "npm run web:build && npm run infra:deploy"
+  }
+}
