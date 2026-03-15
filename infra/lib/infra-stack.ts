@@ -1,71 +1,62 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
-import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as path from 'path';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
 export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // 1. DynamoDB Table
+    // 1. The Database
     const table = new dynamodb.Table(this, 'SessionTable', {
       partitionKey: { name: 'session_id', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY, 
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // 2. Lambda Function
-    const fn = new lambda.Function(this, 'ApiFn', {
-      runtime: lambda.Runtime.PYTHON_3_11,
+    // 2. The Compute
+    const backend = new lambda.Function(this, 'BackendFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'handler.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../backend/app')),
-      memorySize: 512,
-      timeout: cdk.Duration.seconds(30),
+      // CHECK THIS: Ensure handler.py is directly inside the 'backend' folder
+      code: lambda.Code.fromAsset('../backend/app'),
       environment: {
-        MODEL_ID: 'us.amazon.nova-micro-v1:0',
         TABLE_NAME: table.tableName,
+        MODEL_ID: "us.amazon.nova-micro-v1:0",
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // 3. The API Gateway (Corrected to Proxy Mode)
+    const api = new apigateway.LambdaRestApi(this, 'API', {
+      handler: backend,
+      // CRITICAL FIX: Set to true. This allows the Lambda to handle the /chat route automatically.
+      proxy: true,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ['Content-Type', 'Authorization'],
       },
     });
 
-    // 3. Permissions
-    fn.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['bedrock:InvokeModel'],
+    // Note: When proxy is true, we DO NOT manually add resources like .addResource('chat')
+    // The Lambda handles all routes automatically.
+
+    // --- PERMISSIONS ---
+    table.grantReadWriteData(backend);
+
+    // Allow Bedrock
+    backend.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel', 'bedrock:Converse'],
       resources: ['*'],
     }));
-    
-    table.grantReadWriteData(fn); 
 
-    // 4. API Gateway with CORS (FIXED: Using CorsHttpMethod)
-    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
-      apiName: 'bedrock-mock-interviewer-api',
-      corsPreflight: {
-        allowHeaders: ['Content-Type'],
-        allowMethods: [
-          apigwv2.CorsHttpMethod.GET, 
-          apigwv2.CorsHttpMethod.POST, 
-          apigwv2.CorsHttpMethod.OPTIONS
-        ],
-        allowOrigins: ['*'],
-      },
-    });
-
-    // 5. Routes (These still use HttpMethod, which is correct here)
-    httpApi.addRoutes({
-      path: '/health',
-      methods: [apigwv2.HttpMethod.GET],
-      integration: new integrations.HttpLambdaIntegration('HealthIntegration', fn),
-    });
-
-    httpApi.addRoutes({
-      path: '/chat',
-      methods: [apigwv2.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration('ChatIntegration', fn),
-    });
-
-    new cdk.CfnOutput(this, 'ApiUrl', { value: httpApi.url ?? 'Something went wrong' });
+    // Allow Polly (Day 6 Voice)
+    backend.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['polly:SynthesizeSpeech'],
+      resources: ['*'],
+    }));
   }
 }
