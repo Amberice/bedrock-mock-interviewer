@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, User, Loader2, Trash2, Sparkles, Play, Pause, Star, Mic, Square } from "lucide-react";
+import { exportSessionJson, exportSessionMarkdown } from "../utils/exportReport";
 
 interface Message {
   role: "user" | "assistant";
@@ -27,6 +28,7 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState<number | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [sessionData, setSessionData] = useState<any>(null);
 
   // --- REFS ---
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -171,6 +173,7 @@ export default function ChatInterface() {
       }
 
       const data = await res.json();
+      setSessionData(data);
 
       setMessages((p) => [
         ...p,
@@ -238,6 +241,24 @@ export default function ChatInterface() {
                     <Star size={12} fill="currentColor" /> {m.score}/10
                   </div>
                   <span className="text-slate-400 border-l border-slate-700 pl-2 italic">{m.feedback}</span>
+                </div>
+              )}
+
+              {m.role === "assistant" && sessionData && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => exportSessionJson(sessionData)}
+                    className="text-xs px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500"
+                  >
+                    Export JSON
+                  </button>
+
+                  <button
+                    onClick={() => exportSessionMarkdown(sessionData)}
+                    className="text-xs px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500"
+                  >
+                    Export Report
+                  </button>
                 </div>
               )}
 
